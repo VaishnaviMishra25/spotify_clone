@@ -1,41 +1,56 @@
-import React from 'react';
+const express = require('express');
+const cors = require('cors');
 
-export default function App() {
-  return (
-    <div className="h-screen w-full flex bg-black text-white">
-      {/* Sidebar */}
-      <div className="w-1/4 bg-gray-900 p-5 space-y-4">
-        <h1 className="text-2xl font-bold">Spotify Clone</h1>
-        <nav className="space-y-2">
-          <a href="#" className="block py-2 px-4 rounded-lg bg-gray-800">Home</a>
-          <a href="#" className="block py-2 px-4 rounded-lg hover:bg-gray-800">Search</a>
-          <a href="#" className="block py-2 px-4 rounded-lg hover:bg-gray-800">Your Library</a>
-        </nav>
-        <div className="pt-4">
-          <h2 className="text-lg font-semibold">Playlists</h2>
-          <ul className="space-y-1">
-            <li className="py-1">🔥 Top Hits</li>
-            <li className="py-1">🎸 Rock Classics</li>
-            <li className="py-1">🎶 Chill Vibes</li>
-          </ul>
-        </div>
-      </div>
+const app = express();
+const port = 4000;
 
-      {/* Main Content */}
-      <div className="w-3/4 p-6 overflow-y-auto">
-        <h1 className="text-3xl font-bold mb-6">Good Morning</h1>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {['Top Hits', 'Rock Classics', 'Chill Vibes', 'Workout Mix'].map((playlist) => (
-            <div
-              key={playlist}
-              className="bg-gray-800 p-4 rounded-lg hover:bg-gray-700 cursor-pointer"
-            >
-              <h2 className="text-xl font-semibold">{playlist}</h2>
-              <p className="text-sm text-gray-400">Playlist description here</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+app.use(cors());
+app.use(express.json());
+
+// Sample playlists and songs data
+const playlists = [
+  { id: 1, name: 'Top Hits', description: 'Trending songs of the week' },
+  { id: 2, name: 'Rock Classics', description: 'Legendary rock anthems' },
+  { id: 3, name: 'Chill Vibes', description: 'Relaxing tunes to unwind' },
+  { id: 4, name: 'Workout Mix', description: 'High-energy tracks for exercise' }
+];
+
+const songs = {
+  1: [
+    { id: 101, title: 'Song A', artist: 'Artist 1' },
+    { id: 102, title: 'Song B', artist: 'Artist 2' }
+  ],
+  2: [
+    { id: 103, title: 'Rock Anthem', artist: 'Band 1' },
+    { id: 104, title: 'Classic Tune', artist: 'Band 2' }
+  ],
+  3: [
+    { id: 105, title: 'Chill Track 1', artist: 'DJ Relax' },
+    { id: 106, title: 'Smooth Jazz', artist: 'Sax Player' }
+  ],
+  4: [
+    { id: 107, title: 'Pump It Up', artist: 'Gym Beats' },
+    { id: 108, title: 'Energy Boost', artist: 'DJ Power' }
+  ]
+};
+
+// Get all playlists
+app.get('/playlists', (req, res) => {
+  res.json(playlists);
+});
+
+// Get songs for a specific playlist
+app.get('/playlists/:id/songs', (req, res) => {
+  const playlistId = req.params.id;
+  const playlistSongs = songs[playlistId];
+
+  if (playlistSongs) {
+    res.json(playlistSongs);
+  } else {
+    res.status(404).json({ message: 'Playlist not found' });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
+});
