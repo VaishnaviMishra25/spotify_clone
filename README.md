@@ -36,19 +36,29 @@ const songs = {
 
 // Get all playlists
 app.get('/playlists', (req, res) => {
-  res.json(playlists);
+  res.json({ success: true, data: playlists });
 });
 
 // Get songs for a specific playlist
 app.get('/playlists/:id/songs', (req, res) => {
-  const playlistId = req.params.id;
+  const playlistId = parseInt(req.params.id);
+
+  if (isNaN(playlistId)) {
+    return res.status(400).json({ success: false, message: 'Invalid playlist ID format' });
+  }
+
   const playlistSongs = songs[playlistId];
 
-  if (playlistSongs) {
-    res.json(playlistSongs);
-  } else {
-    res.status(404).json({ message: 'Playlist not found' });
+  if (!playlistSongs) {
+    return res.status(404).json({ success: false, message: 'Playlist not found' });
   }
+
+  res.json({ success: true, data: playlistSongs });
+});
+
+// Handle invalid routes
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: 'Endpoint not found' });
 });
 
 app.listen(port, () => {
