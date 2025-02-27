@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bodyParser = require('body-parser');
+const multer = require('multer');
 
 const app = express();
 const port = 4000;
@@ -10,6 +11,8 @@ const SECRET_KEY = 'supersecretkey';
 app.use(cors());
 app.use(express.json());
 app.use(bodyParser.json());
+
+const upload = multer({ dest: 'uploads/' });
 
 let users = [{ id: 1, username: 'admin', password: 'password' }];
 let playlists = [
@@ -78,6 +81,7 @@ app.get('/playlists/:id/share', (req, res) => {
   res.json({ success: true, shareLink });
 });
 
-app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
-});
+// Upload song file
+app.post('/upload', upload.single('song'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: 'No file uplo
