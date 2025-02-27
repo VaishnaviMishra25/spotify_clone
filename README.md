@@ -1,154 +1,81 @@
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const bodyParser = require('body-parser');
 
 const app = express();
 const port = 4000;
+const SECRET_KEY = 'supersecretkey';
 
 app.use(cors());
 app.use(express.json());
+app.use(bodyParser.json());
 
-// Sample playlists and songs data
+let users = [{ id: 1, username: 'admin', password: 'password' }];
 let playlists = [
-  { id: 1, name: 'Top Hits', description: 'Trending songs of the week' },
-  { id: 2, name: 'Rock Classics', description: 'Legendary rock anthems' },
-  { id: 3, name: 'Chill Vibes', description: 'Relaxing tunes to unwind' },
-  { id: 4, name: 'Workout Mix', description: 'High-energy tracks for exercise' }
+  { id: 1, name: 'Top Hits', description: 'Trending songs of the week', likes: 0 },
+  { id: 2, name: 'Rock Classics', description: 'Legendary rock anthems', likes: 0 }
 ];
-
 let songs = {
   1: [
-    { id: 101, title: 'Song A', artist: 'Artist 1' },
-    { id: 102, title: 'Song B', artist: 'Artist 2' }
+    { id: 101, title: 'Song A', artist: 'Artist 1', likes: 0 },
+    { id: 102, title: 'Song B', artist: 'Artist 2', likes: 0 }
   ],
-  2: [
-    { id: 103, title: 'Rock Anthem', artist: 'Band 1' },
-    { id: 104, title: 'Classic Tune', artist: 'Band 2' }
-  ],
-  3: [
-    { id: 105, title: 'Chill Track 1', artist: 'DJ Relax' },
-    { id: 106, title: 'Smooth Jazz', artist: 'Sax Player' }
-  ],
-  4: [
-    { id: 107, title: 'Pump It Up', artist: 'Gym Beats' },
-    { id: 108, title: 'Energy Boost', artist: 'DJ Power' }
-  ]
 };
 
-// Get all playlists
-app.get('/playlists', (req, res) => {
-  res.json({ success: true, data: playlists });
-});
-
-// Get songs for a specific playlist
-app.get('/playlists/:id/songs', (req, res) => {
-  const playlistId = parseInt(req.params.id);
-
-  if (isNaN(playlistId)) {
-    return res.status(400).json({ success: false, message: 'Invalid playlist ID format' });
-  }
-
-  const playlistSongs = songs[playlistId];
-
-  if (!playlistSongs) {
-    return res.status(404).json({ success: false, message: 'Playlist not found' });
-  }
-
-  res.json({ success: true, data: playlistSongs });
-});
-
-// Add a new playlist
-app.post('/playlists', (req, res) => {
-  const { name, description } = req.body;
-
-  if (!name || !description) {
-    return res.status(400).json({ success: false, message: 'Name and description are required' });
-  }
-
-  const newPlaylist = {
-    id: playlists.length + 1,
-    name,
-    description
-  };
-
-  playlists.push(newPlaylist);
-  songs[newPlaylist.id] = [];
-
-  res.status(201).json({ success: true, data: newPlaylist });
-});
-
-// Delete a playlist
-app.delete('/playlists/:id', (req, res) => {
-  const playlistId = parseInt(req.params.id);
-
-  playlists = playlists.filter(p => p.id !== playlistId);
-  delete songs[playlistId];
-
-  res.json({ success: true, message: 'Playlist deleted successfully' });
-});
-
-// Add a song to a playlist
-app.post('/playlists/:id/songs', (req, res) => {
-  const playlistId = parseInt(req.params.id);
-  const { title, artist } = req.body;
-
-  if (!title || !artist) {
-    return res.status(400).json({ success: false, message: 'Title and artist are required' });
-  }
-
-  if (!songs[playlistId]) {
-    return res.status(404).json({ success: false, message: 'Playlist not found' });
-  }
-
-  const newSong = {
-    id: Date.now(),
-    title,
-    artist
-  };
-
-  songs[playlistId].push(newSong);
-  res.status(201).json({ success: true, data: newSong });
-});
-
-// Delete a song from a playlist
-app.delete('/playlists/:id/songs/:songId', (req, res) => {
-  const playlistId = parseInt(req.params.id);
-  const songId = parseInt(req.params.songId);
-
-  if (!songs[playlistId]) {
-    return res.status(404).json({ success: false, message: 'Playlist not found' });
-  }
-
-  songs[playlistId] = songs[playlistId].filter(song => song.id !== songId);
-  res.json({ success: true, message: 'Song deleted successfully' });
-});
-
-// Update a playlist's name/description
-app.put('/playlists/:id', (req, res) => {
-  const playlistId = parseInt(req.params.id);
-  const { name, description } = req.body;
-
-  let playlist = playlists.find(p => p.id === playlistId);
-  if (!playlist) {
-    return res.status(404).json({ success: false, message: 'Playlist not found' });
-  }
-
-  if (name) playlist.name = name;
-  if (description) playlist.description = description;
-
-  res.json({ success: true, data: playlist });
-});
-
-// Handle invalid JSON errors
-app.use((err, req, res, next) => {
-  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-    return res.status(400).json({ success: false, message: 'Invalid JSON format' });
-  }
+// Middleware for logging requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url}`);
   next();
 });
 
-// Handle invalid routes
-app.use((req, res) => {
-  res.status(404).json({ success: false, message: 'Endpoint not found' });
+// User authentication (JWT)
+app.post('/login', (req, res) => {
+  const { username, password } = req.body;
+  const user = users.find(u => u.username === username && u.password === password);
+  if (!user) {
+    return res.status(401).json({ success: false, message: 'Invalid credentials' });
+  }
+  const token = jwt.sign({ id: user.id, username: user.username }, SECRET_KEY, { expiresIn: '1h' });
+  res.json({ success: true, token });
+});
+
+// Middleware for verifying JWT
+const verifyToken = (req, res, next) => {
+  const token = req.headers['authorization'];
+  if (!token) return res.status(403).json({ success: false, message: 'No token provided' });
+  jwt.verify(token, SECRET_KEY, (err, decoded) => {
+    if (err) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    req.user = decoded;
+    next();
+  });
+};
+
+// Search playlists or songs
+app.get('/search', (req, res) => {
+  const query = req.query.q.toLowerCase();
+  const filteredPlaylists = playlists.filter(p => p.name.toLowerCase().includes(query));
+  const filteredSongs = Object.values(songs).flat().filter(s => s.title.toLowerCase().includes(query));
+  res.json({ success: true, playlists: filteredPlaylists, songs: filteredSongs });
+});
+
+// Like a song
+app.post('/playlists/:id/songs/:songId/like', (req, res) => {
+  const playlistId = parseInt(req.params.id);
+  const songId = parseInt(req.params.songId);
+  let song = songs[playlistId]?.find(s => s.id === songId);
+  if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
+  song.likes += 1;
+  res.json({ success: true, message: 'Song liked', likes: song.likes });
+});
+
+// Share a playlist (generate a unique link)
+app.get('/playlists/:id/share', (req, res) => {
+  const playlistId = parseInt(req.params.id);
+  const playlist = playlists.find(p => p.id === playlistId);
+  if (!playlist) return res.status(404).json({ success: false, message: 'Playlist not found' });
+  const shareLink = `http://localhost:${port}/playlists/${playlistId}`;
+  res.json({ success: true, shareLink });
 });
 
 app.listen(port, () => {
