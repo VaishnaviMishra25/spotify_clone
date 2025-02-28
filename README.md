@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const bodyParser = require('body-parser');
 const multer = require('multer');
 const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const port = 4000;
@@ -19,6 +20,7 @@ let users = [{ id: 1, username: 'admin', password: 'password', role: 'admin' }];
 let playlists = [];
 let songs = {};
 let comments = {};  // Stores song comments
+let downloads = {}; // Track download count
 
 // Middleware for logging requests
 app.use((req, res, next) => {
@@ -99,13 +101,19 @@ app.post('/playlists/:id/songs/:songId/comment', verifyToken, (req, res) => {
   res.json({ success: true, message: 'Comment added', comments: comments[songId] });
 });
 
-// Download a song
+// Download a song with tracking
 app.get('/playlists/:id/songs/:songId/download', (req, res) => {
   const playlistId = parseInt(req.params.id);
   const songId = parseInt(req.params.songId);
   let song = songs[playlistId]?.find(s => s.id === songId);
   if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
+  downloads[songId] = (downloads[songId] || 0) + 1;
   res.download(song.filePath);
+});
+
+// Get download stats
+app.get('/stats/downloads', (req, res) => {
+  res.json({ success: true, downloads });
 });
 
 // Get all playlists
