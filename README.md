@@ -3,6 +3,7 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bodyParser = require('body-parser');
 const multer = require('multer');
+const fs = require('fs');
 
 const app = express();
 const port = 4000;
@@ -14,22 +15,26 @@ app.use(bodyParser.json());
 
 const upload = multer({ dest: 'uploads/' });
 
-let users = [{ id: 1, username: 'admin', password: 'password' }];
-let playlists = [
-  { id: 1, name: 'Top Hits', description: 'Trending songs of the week', likes: 0 },
-  { id: 2, name: 'Rock Classics', description: 'Legendary rock anthems', likes: 0 }
-];
-let songs = {
-  1: [
-    { id: 101, title: 'Song A', artist: 'Artist 1', likes: 0 },
-    { id: 102, title: 'Song B', artist: 'Artist 2', likes: 0 }
-  ],
-};
+let users = [{ id: 1, username: 'admin', password: 'password', role: 'admin' }];
+let playlists = [];
+let songs = {};
+let comments = {};  // Stores song comments
 
 // Middleware for logging requests
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.url}`);
   next();
+});
+
+// User registration
+app.post('/register', (req, res) => {
+  const { username, password } = req.body;
+  if (users.find(u => u.username === username)) {
+    return res.status(400).json({ success: false, message: 'Username already exists' });
+  }
+  const newUser = { id: users.length + 1, username, password, role: 'user' };
+  users.push(newUser);
+  res.json({ success: true, message: 'User registered successfully' });
 });
 
 // User authentication (JWT)
@@ -39,7 +44,7 @@ app.post('/login', (req, res) => {
   if (!user) {
     return res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
-  const token = jwt.sign({ id: user.id, username: user.username }, SECRET_KEY, { expiresIn: '1h' });
+  const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
   res.json({ success: true, token });
 });
 
@@ -54,7 +59,61 @@ const verifyToken = (req, res, next) => {
   });
 };
 
-// Search playlists or songs
+// Create a playlist
+app.post('/playlists', verifyToken, (req, res) => {
+  const { name, description } = req.body;
+  const newPlaylist = { id: playlists.length + 1, name, description, likes: 0 };
+  playlists.push(newPlaylist);
+  songs[newPlaylist.id] = [];
+  res.json({ success: true, message: 'Playlist created', playlist: newPlaylist });
+});
+
+// Upload and add a song
+app.post('/playlists/:id/songs', verifyToken, upload.single('song'), (req, res) => {
+  const playlistId = parseInt(req.params.id);
+  if (!songs[playlistId]) return res.status(404).json({ success: false, message: 'Playlist not found' });
+  const newSong = { id: Date.now(), title: req.body.title, artist: req.body.artist, likes: 0, filePath: req.file.path };
+  songs[playlistId].push(newSong);
+  res.json({ success: true, message: 'Song added', song: newSong });
+});
+
+// Like or dislike a song
+app.post('/playlists/:id/songs/:songId/reaction', verifyToken, (req, res) => {
+  const playlistId = parseInt(req.params.id);
+  const songId = parseInt(req.params.songId);
+  const { action } = req.body;
+  let song = songs[playlistId]?.find(s => s.id === songId);
+  if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
+  if (action === 'like') song.likes += 1;
+  else if (action === 'dislike') song.likes -= 1;
+  res.json({ success: true, message: `Song ${action}d`, likes: song.likes });
+});
+
+// Comment on a song
+app.post('/playlists/:id/songs/:songId/comment', verifyToken, (req, res) => {
+  const playlistId = parseInt(req.params.id);
+  const songId = parseInt(req.params.songId);
+  const { comment } = req.body;
+  if (!comments[songId]) comments[songId] = [];
+  comments[songId].push({ user: req.user.username, comment });
+  res.json({ success: true, message: 'Comment added', comments: comments[songId] });
+});
+
+// Download a song
+app.get('/playlists/:id/songs/:songId/download', (req, res) => {
+  const playlistId = parseInt(req.params.id);
+  const songId = parseInt(req.params.songId);
+  let song = songs[playlistId]?.find(s => s.id === songId);
+  if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
+  res.download(song.filePath);
+});
+
+// Get all playlists
+app.get('/playlists', (req, res) => {
+  res.json({ success: true, playlists });
+});
+
+// Search functionality
 app.get('/search', (req, res) => {
   const query = req.query.q.toLowerCase();
   const filteredPlaylists = playlists.filter(p => p.name.toLowerCase().includes(query));
@@ -62,26 +121,6 @@ app.get('/search', (req, res) => {
   res.json({ success: true, playlists: filteredPlaylists, songs: filteredSongs });
 });
 
-// Like a song
-app.post('/playlists/:id/songs/:songId/like', (req, res) => {
-  const playlistId = parseInt(req.params.id);
-  const songId = parseInt(req.params.songId);
-  let song = songs[playlistId]?.find(s => s.id === songId);
-  if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
-  song.likes += 1;
-  res.json({ success: true, message: 'Song liked', likes: song.likes });
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });
-
-// Share a playlist (generate a unique link)
-app.get('/playlists/:id/share', (req, res) => {
-  const playlistId = parseInt(req.params.id);
-  const playlist = playlists.find(p => p.id === playlistId);
-  if (!playlist) return res.status(404).json({ success: false, message: 'Playlist not found' });
-  const shareLink = `http://localhost:${port}/playlists/${playlistId}`;
-  res.json({ success: true, shareLink });
-});
-
-// Upload song file
-app.post('/upload', upload.single('song'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, message: 'No file uplo
