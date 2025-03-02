@@ -16,18 +16,24 @@ app.use(cors());
 app.use(express.json());
 app.use(bodyParser.json());
 
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({
+  dest: 'uploads/',
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith('audio/')) {
+      return cb(new Error('Only audio files are allowed!'), false);
+    }
+    cb(null, true);
+  },
+});
 
 let users = [{ id: 1, username: 'admin', password: bcrypt.hashSync('password', 10), role: 'admin' }];
 let playlists = [];
 let songs = {};
-let comments = {};
-let downloads = {};
 
-// Rate Limiting (Prevent abuse)
+// Rate Limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000, 
+  max: 100,
 });
 app.use(limiter);
 
@@ -37,32 +43,31 @@ app.use((req, res, next) => {
   next();
 });
 
-// User Registration with Password Hashing
+// User Registration
 app.post('/register', async (req, res) => {
   const { username, password } = req.body;
-  if (users.find(u => u.username === username)) {
+  if (users.some(u => u.username === username)) {
     return res.status(400).json({ success: false, message: 'Username already exists' });
   }
   const hashedPassword = await bcrypt.hash(password, 10);
-  const newUser = { id: users.length + 1, username, password: hashedPassword, role: 'user' };
-  users.push(newUser);
+  users.push({ id: users.length + 1, username, password: hashedPassword, role: 'user' });
   res.json({ success: true, message: 'User registered successfully' });
 });
 
-// User Authentication with JWT
+// User Login
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   const user = users.find(u => u.username === username);
   if (!user || !(await bcrypt.compare(password, user.password))) {
     return res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
-  const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
+  const token = jwt.sign({ id: user.id, username, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
   res.json({ success: true, token });
 });
 
-// Middleware for Verifying JWT
+// Verify Token Middleware
 const verifyToken = (req, res, next) => {
-  const token = req.headers['authorization'];
+  const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(403).json({ success: false, message: 'No token provided' });
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
     if (err) return res.status(401).json({ success: false, message: 'Unauthorized' });
@@ -71,7 +76,7 @@ const verifyToken = (req, res, next) => {
   });
 };
 
-// Create a Playlist
+// Create Playlist
 app.post('/playlists', verifyToken, (req, res) => {
   const { name, description } = req.body;
   const newPlaylist = { id: playlists.length + 1, name, description, likes: 0, createdBy: req.user.username };
@@ -80,7 +85,15 @@ app.post('/playlists', verifyToken, (req, res) => {
   res.json({ success: true, message: 'Playlist created', playlist: newPlaylist });
 });
 
-// Upload and Add a Song
+// Delete Playlist
+app.delete('/playlists/:id', verifyToken, (req, res) => {
+  const playlistId = parseInt(req.params.id);
+  playlists = playlists.filter(p => p.id !== playlistId);
+  delete songs[playlistId];
+  res.json({ success: true, message: 'Playlist deleted' });
+});
+
+// Upload Song
 app.post('/playlists/:id/songs', verifyToken, upload.single('song'), (req, res) => {
   const playlistId = parseInt(req.params.id);
   if (!songs[playlistId]) return res.status(404).json({ success: false, message: 'Playlist not found' });
@@ -98,19 +111,18 @@ app.post('/playlists/:id/songs', verifyToken, upload.single('song'), (req, res) 
   res.json({ success: true, message: 'Song added', song: newSong });
 });
 
-// Stream a Song Instead of Downloading
+// Stream a Song
 app.get('/playlists/:id/songs/:songId/stream', (req, res) => {
   const playlistId = parseInt(req.params.id);
   const songId = parseInt(req.params.songId);
-  let song = songs[playlistId]?.find(s => s.id === songId);
+  const song = songs[playlistId]?.find(s => s.id === songId);
 
   if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
-
   res.setHeader('Content-Type', 'audio/mpeg');
   fs.createReadStream(song.filePath).pipe(res);
 });
 
-// Like or Dislike a Song
+// Like/Dislike Song
 app.post('/playlists/:id/songs/:songId/reaction', verifyToken, (req, res) => {
   const playlistId = parseInt(req.params.id);
   const songId = parseInt(req.params.songId);
@@ -120,35 +132,18 @@ app.post('/playlists/:id/songs/:songId/reaction', verifyToken, (req, res) => {
   if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
 
   if (action === 'like') song.likes += 1;
-  else if (action === 'dislike') song.likes -= 1;
+  else if (action === 'dislike' && song.likes > 0) song.likes -= 1;
 
   res.json({ success: true, message: `Song ${action}d`, likes: song.likes });
 });
 
-// Get All Playlists with Created By Information
-app.get('/playlists', (req, res) => {
-  res.json({ success: true, playlists });
-});
-
-// Search Songs and Playlists with Genre Filter
-app.get('/search', (req, res) => {
-  const query = req.query.q.toLowerCase();
-  const genre = req.query.genre?.toLowerCase();
-
-  let filteredPlaylists = playlists.filter(p => p.name.toLowerCase().includes(query));
-  let filteredSongs = Object.values(songs).flat().filter(s => s.title.toLowerCase().includes(query));
-
-  if (genre) {
-    filteredSongs = filteredSongs.filter(s => s.genre?.toLowerCase() === genre);
-  }
-
-  res.json({ success: true, playlists: filteredPlaylists, songs: filteredSongs });
-});
-
-// Get User Profile
-app.get('/profile', verifyToken, (req, res) => {
+// Update User Password
+app.put('/profile/password', verifyToken, async (req, res) => {
   const user = users.find(u => u.id === req.user.id);
-  res.json({ success: true, user: { id: user.id, username: user.username, role: user.role } });
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+  user.password = await bcrypt.hash(req.body.newPassword, 10);
+  res.json({ success: true, message: 'Password updated successfully' });
 });
 
 app.listen(port, () => {
