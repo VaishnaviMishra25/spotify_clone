@@ -9,14 +9,15 @@ const AWS = require('aws-sdk');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
-const port = 4000;
+const port = process.env.PORT || 4000;
 const SECRET_KEY = process.env.SECRET_KEY || 'supersecretkey';
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-}).then(() => console.log("✅ Connected to MongoDB")).catch(err => console.error(err));
+}).then(() => console.log("✅ Connected to MongoDB"))
+  .catch(err => console.error("❌ MongoDB Connection Error:", err));
 
 // AWS S3 Configuration
 const s3 = new AWS.S3({
@@ -41,6 +42,7 @@ app.use(express.json());
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
+  message: "Too many requests from this IP, please try again later."
 });
 app.use(limiter);
 
@@ -58,107 +60,82 @@ const verifyToken = (req, res, next) => {
 
 // Register User
 app.post('/register', async (req, res) => {
-  const { username, password } = req.body;
-  const existingUser = await User.findOne({ username });
-  if (existingUser) return res.status(400).json({ success: false, message: 'Username already exists' });
+  try {
+    const { username, password } = req.body;
+    const existingUser = await User.findOne({ username });
+    if (existingUser) return res.status(400).json({ success: false, message: 'Username already exists' });
 
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const newUser = new User({ username, password: hashedPassword, role: 'user' });
-  await newUser.save();
-  res.json({ success: true, message: 'User registered successfully' });
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ username, password: hashedPassword, role: 'user' });
+    await newUser.save();
+    res.json({ success: true, message: 'User registered successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
 });
 
 // Login User
 app.post('/login', async (req, res) => {
-  const { username, password } = req.body;
-  const user = await User.findOne({ username });
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
 
-  if (!user || !(await bcrypt.compare(password, user.password))) {
-    return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign({ id: user._id, username, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
+    res.json({ success: true, token });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
-
-  const token = jwt.sign({ id: user._id, username, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
-  res.json({ success: true, token });
 });
 
 // Create Playlist
 app.post('/playlists', verifyToken, async (req, res) => {
-  const { name, description, isPublic } = req.body;
-  const newPlaylist = new Playlist({
-    name, description, isPublic, createdBy: req.user.username
-  });
-  await newPlaylist.save();
-  res.json({ success: true, message: 'Playlist created', playlist: newPlaylist });
+  try {
+    const { name, description, isPublic } = req.body;
+    const newPlaylist = new Playlist({
+      name, description, isPublic, createdBy: req.user.username
+    });
+    await newPlaylist.save();
+    res.json({ success: true, message: 'Playlist created', playlist: newPlaylist });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
 });
 
 // Upload Song to AWS S3
 app.post('/playlists/:id/songs', verifyToken, upload.single('song'), async (req, res) => {
-  const playlist = await Playlist.findById(req.params.id);
-  if (!playlist) return res.status(404).json({ success: false, message: 'Playlist not found' });
+  try {
+    const playlist = await Playlist.findById(req.params.id);
+    if (!playlist) return res.status(404).json({ success: false, message: 'Playlist not found' });
 
-  const songFile = req.file;
-  const fileKey = `songs/${Date.now()}_${songFile.originalname}`;
+    const songFile = req.file;
+    const fileKey = `songs/${Date.now()}_${songFile.originalname}`;
 
-  const uploadParams = {
-    Bucket: process.env.AWS_BUCKET_NAME,
-    Key: fileKey,
-    Body: songFile.buffer,
-    ContentType: songFile.mimetype,
-  };
+    const uploadParams = {
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: fileKey,
+      Body: songFile.buffer,
+      ContentType: songFile.mimetype,
+    };
 
-  const uploadResult = await s3.upload(uploadParams).promise();
+    const uploadResult = await s3.upload(uploadParams).promise();
 
-  const newSong = new Song({
-    title: req.body.title,
-    artist: req.body.artist,
-    fileUrl: uploadResult.Location,
-    playlist: playlist._id,
-    addedBy: req.user.username,
-  });
+    const newSong = new Song({
+      title: req.body.title,
+      artist: req.body.artist,
+      fileUrl: uploadResult.Location,
+      playlist: playlist._id,
+      addedBy: req.user.username,
+    });
 
-  await newSong.save();
-  res.json({ success: true, message: 'Song uploaded', song: newSong });
-});
-
-// Stream Song from AWS S3
-app.get('/playlists/:id/songs/:songId/stream', async (req, res) => {
-  const song = await Song.findById(req.params.songId);
-  if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
-
-  res.redirect(song.fileUrl);
-});
-
-// Like/Unlike a Song
-app.post('/playlists/:id/songs/:songId/like', verifyToken, async (req, res) => {
-  const song = await Song.findById(req.params.songId);
-  if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
-
-  const likedIndex = song.likes.indexOf(req.user.id);
-  if (likedIndex === -1) {
-    song.likes.push(req.user.id);
-    message = 'Liked';
-  } else {
-    song.likes.splice(likedIndex, 1);
-    message = 'Unliked';
+    await newSong.save();
+    res.json({ success: true, message: 'Song uploaded', song: newSong });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
-
-  await song.save();
-  res.json({ success: true, message, likes: song.likes.length });
-});
-
-// Delete Playlist (Only Owner or Admin)
-app.delete('/playlists/:id', verifyToken, async (req, res) => {
-  const playlist = await Playlist.findById(req.params.id);
-  if (!playlist) return res.status(404).json({ success: false, message: 'Playlist not found' });
-
-  if (req.user.role !== 'admin' && playlist.createdBy !== req.user.username) {
-    return res.status(403).json({ success: false, message: 'Unauthorized' });
-  }
-
-  await playlist.deleteOne();
-  await Song.deleteMany({ playlist: req.params.id });
-
-  res.json({ success: true, message: 'Playlist deleted' });
 });
 
 app.listen(port, () => {
