@@ -1,74 +1,54 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const bodyParser = require('body-parser');
-const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
+const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
+const multer = require('multer');
+const AWS = require('aws-sdk');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
 const port = 4000;
-const SECRET_KEY = 'supersecretkey';
+const SECRET_KEY = process.env.SECRET_KEY || 'supersecretkey';
+
+// MongoDB Connection
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+}).then(() => console.log("✅ Connected to MongoDB")).catch(err => console.error(err));
+
+// AWS S3 Configuration
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION,
+});
+
+// Multer Storage Setup
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+
+// Models
+const User = require('./models/User');
+const Playlist = require('./models/Playlist');
+const Song = require('./models/Song');
 
 app.use(cors());
 app.use(express.json());
-app.use(bodyParser.json());
-
-const upload = multer({
-  dest: 'uploads/',
-  fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith('audio/')) {
-      return cb(new Error('Only audio files are allowed!'), false);
-    }
-    cb(null, true);
-  },
-});
-
-let users = [{ id: 1, username: 'admin', password: bcrypt.hashSync('password', 10), role: 'admin' }];
-let playlists = [];
-let songs = {};
 
 // Rate Limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
+  windowMs: 15 * 60 * 1000,
   max: 100,
 });
 app.use(limiter);
 
-// Middleware for Logging Requests
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.url}`);
-  next();
-});
-
-// User Registration
-app.post('/register', async (req, res) => {
-  const { username, password } = req.body;
-  if (users.some(u => u.username === username)) {
-    return res.status(400).json({ success: false, message: 'Username already exists' });
-  }
-  const hashedPassword = await bcrypt.hash(password, 10);
-  users.push({ id: users.length + 1, username, password: hashedPassword, role: 'user' });
-  res.json({ success: true, message: 'User registered successfully' });
-});
-
-// User Login
-app.post('/login', async (req, res) => {
-  const { username, password } = req.body;
-  const user = users.find(u => u.username === username);
-  if (!user || !(await bcrypt.compare(password, user.password))) {
-    return res.status(401).json({ success: false, message: 'Invalid credentials' });
-  }
-  const token = jwt.sign({ id: user.id, username, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
-  res.json({ success: true, token });
-});
-
-// Verify Token Middleware
+// Middleware for JWT Verification
 const verifyToken = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(403).json({ success: false, message: 'No token provided' });
+
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
     if (err) return res.status(401).json({ success: false, message: 'Unauthorized' });
     req.user = decoded;
@@ -76,76 +56,111 @@ const verifyToken = (req, res, next) => {
   });
 };
 
+// Register User
+app.post('/register', async (req, res) => {
+  const { username, password } = req.body;
+  const existingUser = await User.findOne({ username });
+  if (existingUser) return res.status(400).json({ success: false, message: 'Username already exists' });
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const newUser = new User({ username, password: hashedPassword, role: 'user' });
+  await newUser.save();
+  res.json({ success: true, message: 'User registered successfully' });
+});
+
+// Login User
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+  const user = await User.findOne({ username });
+
+  if (!user || !(await bcrypt.compare(password, user.password))) {
+    return res.status(401).json({ success: false, message: 'Invalid credentials' });
+  }
+
+  const token = jwt.sign({ id: user._id, username, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
+  res.json({ success: true, token });
+});
+
 // Create Playlist
-app.post('/playlists', verifyToken, (req, res) => {
-  const { name, description } = req.body;
-  const newPlaylist = { id: playlists.length + 1, name, description, likes: 0, createdBy: req.user.username };
-  playlists.push(newPlaylist);
-  songs[newPlaylist.id] = [];
+app.post('/playlists', verifyToken, async (req, res) => {
+  const { name, description, isPublic } = req.body;
+  const newPlaylist = new Playlist({
+    name, description, isPublic, createdBy: req.user.username
+  });
+  await newPlaylist.save();
   res.json({ success: true, message: 'Playlist created', playlist: newPlaylist });
 });
 
-// Delete Playlist
-app.delete('/playlists/:id', verifyToken, (req, res) => {
-  const playlistId = parseInt(req.params.id);
-  playlists = playlists.filter(p => p.id !== playlistId);
-  delete songs[playlistId];
+// Upload Song to AWS S3
+app.post('/playlists/:id/songs', verifyToken, upload.single('song'), async (req, res) => {
+  const playlist = await Playlist.findById(req.params.id);
+  if (!playlist) return res.status(404).json({ success: false, message: 'Playlist not found' });
+
+  const songFile = req.file;
+  const fileKey = `songs/${Date.now()}_${songFile.originalname}`;
+
+  const uploadParams = {
+    Bucket: process.env.AWS_BUCKET_NAME,
+    Key: fileKey,
+    Body: songFile.buffer,
+    ContentType: songFile.mimetype,
+  };
+
+  const uploadResult = await s3.upload(uploadParams).promise();
+
+  const newSong = new Song({
+    title: req.body.title,
+    artist: req.body.artist,
+    fileUrl: uploadResult.Location,
+    playlist: playlist._id,
+    addedBy: req.user.username,
+  });
+
+  await newSong.save();
+  res.json({ success: true, message: 'Song uploaded', song: newSong });
+});
+
+// Stream Song from AWS S3
+app.get('/playlists/:id/songs/:songId/stream', async (req, res) => {
+  const song = await Song.findById(req.params.songId);
+  if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
+
+  res.redirect(song.fileUrl);
+});
+
+// Like/Unlike a Song
+app.post('/playlists/:id/songs/:songId/like', verifyToken, async (req, res) => {
+  const song = await Song.findById(req.params.songId);
+  if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
+
+  const likedIndex = song.likes.indexOf(req.user.id);
+  if (likedIndex === -1) {
+    song.likes.push(req.user.id);
+    message = 'Liked';
+  } else {
+    song.likes.splice(likedIndex, 1);
+    message = 'Unliked';
+  }
+
+  await song.save();
+  res.json({ success: true, message, likes: song.likes.length });
+});
+
+// Delete Playlist (Only Owner or Admin)
+app.delete('/playlists/:id', verifyToken, async (req, res) => {
+  const playlist = await Playlist.findById(req.params.id);
+  if (!playlist) return res.status(404).json({ success: false, message: 'Playlist not found' });
+
+  if (req.user.role !== 'admin' && playlist.createdBy !== req.user.username) {
+    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  }
+
+  await playlist.deleteOne();
+  await Song.deleteMany({ playlist: req.params.id });
+
   res.json({ success: true, message: 'Playlist deleted' });
 });
 
-// Upload Song
-app.post('/playlists/:id/songs', verifyToken, upload.single('song'), (req, res) => {
-  const playlistId = parseInt(req.params.id);
-  if (!songs[playlistId]) return res.status(404).json({ success: false, message: 'Playlist not found' });
-
-  const newSong = {
-    id: Date.now(),
-    title: req.body.title,
-    artist: req.body.artist,
-    likes: 0,
-    filePath: req.file.path,
-    addedBy: req.user.username,
-  };
-
-  songs[playlistId].push(newSong);
-  res.json({ success: true, message: 'Song added', song: newSong });
-});
-
-// Stream a Song
-app.get('/playlists/:id/songs/:songId/stream', (req, res) => {
-  const playlistId = parseInt(req.params.id);
-  const songId = parseInt(req.params.songId);
-  const song = songs[playlistId]?.find(s => s.id === songId);
-
-  if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
-  res.setHeader('Content-Type', 'audio/mpeg');
-  fs.createReadStream(song.filePath).pipe(res);
-});
-
-// Like/Dislike Song
-app.post('/playlists/:id/songs/:songId/reaction', verifyToken, (req, res) => {
-  const playlistId = parseInt(req.params.id);
-  const songId = parseInt(req.params.songId);
-  const { action } = req.body;
-  let song = songs[playlistId]?.find(s => s.id === songId);
-
-  if (!song) return res.status(404).json({ success: false, message: 'Song not found' });
-
-  if (action === 'like') song.likes += 1;
-  else if (action === 'dislike' && song.likes > 0) song.likes -= 1;
-
-  res.json({ success: true, message: `Song ${action}d`, likes: song.likes });
-});
-
-// Update User Password
-app.put('/profile/password', verifyToken, async (req, res) => {
-  const user = users.find(u => u.id === req.user.id);
-  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-
-  user.password = await bcrypt.hash(req.body.newPassword, 10);
-  res.json({ success: true, message: 'Password updated successfully' });
-});
-
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`✅ Server running on port ${port}`);
 });
