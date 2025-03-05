@@ -28,7 +28,7 @@ const s3 = new AWS.S3({
 
 // Multer Storage Setup
 const storage = multer.memoryStorage();
-const upload = multer({ storage });
+const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }); // Limit file size to 10MB
 
 // Models
 const User = require('./models/User');
@@ -42,7 +42,7 @@ app.use(express.json());
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
-  message: "There are too many requests from this IP, please try again later."
+  message: "Too many requests from this IP, please try again later."
 });
 app.use(limiter);
 
@@ -62,6 +62,8 @@ const verifyToken = (req, res, next) => {
 app.post('/register', async (req, res) => {
   try {
     const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ success: false, message: 'Username and password are required' });
+
     const existingUser = await User.findOne({ username });
     if (existingUser) return res.status(400).json({ success: false, message: 'Username already exists' });
 
@@ -78,8 +80,9 @@ app.post('/register', async (req, res) => {
 app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const user = await User.findOne({ username });
+    if (!username || !password) return res.status(400).json({ success: false, message: 'Username and password are required' });
 
+    const user = await User.findOne({ username });
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
@@ -95,6 +98,8 @@ app.post('/login', async (req, res) => {
 app.post('/playlists', verifyToken, async (req, res) => {
   try {
     const { name, description, isPublic } = req.body;
+    if (!name) return res.status(400).json({ success: false, message: 'Playlist name is required' });
+
     const newPlaylist = new Playlist({
       name, description, isPublic, createdBy: req.user.username
     });
@@ -110,6 +115,7 @@ app.post('/playlists/:id/songs', verifyToken, upload.single('song'), async (req,
   try {
     const playlist = await Playlist.findById(req.params.id);
     if (!playlist) return res.status(404).json({ success: false, message: 'Playlist not found' });
+    if (!req.file) return res.status(400).json({ success: false, message: 'No song file uploaded' });
 
     const songFile = req.file;
     const fileKey = `songs/${Date.now()}_${songFile.originalname}`;
