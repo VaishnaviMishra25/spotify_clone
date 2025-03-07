@@ -1,7 +1,7 @@
 /* General Styles */
 body {
   font-family: 'Poppins', sans-serif;
-  background: #121212;
+  background: linear-gradient(135deg, #0f0f0f, #1a1a1a);
   color: white;
   margin: 0;
   padding: 0;
@@ -16,7 +16,10 @@ body {
   padding: 15px 20px;
   background: #181818;
   border-bottom: 2px solid #282828;
-  box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
+  box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
 }
 
 .navbar a {
@@ -24,13 +27,14 @@ body {
   text-decoration: none;
   padding: 12px 18px;
   font-weight: bold;
-  transition: 0.3s;
+  border-radius: 8px;
+  transition: 0.3s ease-in-out;
 }
 
 .navbar a:hover {
-  background: #1DB954;
-  border-radius: 8px;
+  background: linear-gradient(135deg, #1DB954, #1ed760);
   color: #121212;
+  transform: scale(1.1);
 }
 
 /* Playlist Section */
@@ -42,22 +46,23 @@ body {
 }
 
 .playlist {
-  background: #1e1e1e;
+  background: linear-gradient(135deg, #222, #292929);
   padding: 20px;
   border-radius: 12px;
   margin-bottom: 25px;
-  box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3);
-  transition: transform 0.3s ease-in-out;
+  box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.4);
+  transition: transform 0.3s ease-in-out, box-shadow 0.3s;
 }
 
 .playlist:hover {
-  transform: scale(1.02);
+  transform: scale(1.05);
+  box-shadow: 0px 6px 20px rgba(0, 0, 0, 0.5);
 }
 
 .playlist h3 {
   margin: 0;
   color: #1DB954;
-  font-size: 1.4rem;
+  font-size: 1.6rem;
 }
 
 .playlist p {
@@ -74,12 +79,12 @@ body {
   background: #282828;
   border-radius: 8px;
   margin-bottom: 8px;
-  transition: 0.3s;
+  transition: transform 0.3s ease-in-out, background 0.3s;
 }
 
 .song:hover {
-  background: #383838;
-  transform: scale(1.02);
+  background: linear-gradient(135deg, #383838, #444);
+  transform: scale(1.05);
 }
 
 .song .like-btn {
@@ -87,12 +92,13 @@ body {
   border: none;
   color: #1DB954;
   cursor: pointer;
-  font-size: 1.2rem;
-  transition: color 0.3s;
+  font-size: 1.5rem;
+  transition: color 0.3s, transform 0.3s;
 }
 
 .song .like-btn:hover {
   color: #1ed760;
+  transform: scale(1.2);
 }
 
 /* Upload & Forms */
@@ -109,16 +115,17 @@ body {
   background: #282828;
   color: white;
   outline: none;
-  transition: 0.3s;
+  transition: background 0.3s, transform 0.3s;
 }
 
 .upload-section input:focus {
-  background: #383838;
+  background: linear-gradient(135deg, #383838, #444);
+  transform: scale(1.05);
 }
 
 /* Buttons */
 button {
-  background: #1DB954;
+  background: linear-gradient(135deg, #1DB954, #1ed760);
   color: white;
   border: none;
   padding: 12px 18px;
@@ -126,10 +133,11 @@ button {
   border-radius: 8px;
   font-size: 1rem;
   font-weight: bold;
-  transition: 0.3s;
+  transition: transform 0.3s ease-in-out, box-shadow 0.3s;
 }
 
 button:hover {
-  background: #1ed760;
-  transform: scale(1.05);
+  background: linear-gradient(135deg, #1ed760, #23e674);
+  transform: scale(1.1);
+  box-shadow: 0px 4px 10px rgba(0, 255, 128, 0.5);
 }
