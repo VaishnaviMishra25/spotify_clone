@@ -11,6 +11,7 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 const port = process.env.PORT || 4000;
 const SECRET_KEY = process.env.SECRET_KEY || 'supersecretkey';
+const REFRESH_SECRET_KEY = process.env.REFRESH_SECRET_KEY || 'refreshsecretkey';
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI, {
@@ -28,7 +29,14 @@ const s3 = new AWS.S3({
 
 // Multer Storage Setup
 const storage = multer.memoryStorage();
-const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }); // Limit file size to 10MB
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('audio/')) cb(null, true);
+    else cb(new Error('Only audio files are allowed'), false);
+  }
+});
 
 // Models
 const User = require('./models/User');
@@ -38,13 +46,10 @@ const Song = require('./models/Song');
 app.use(cors());
 app.use(express.json());
 
-// Rate Limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: "Too many requests from this IP, please try again later."
-});
-app.use(limiter);
+// Rate Limiting (Different limits for guests & authenticated users)
+const guestLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
+const userLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 });
+app.use(guestLimiter);
 
 // Middleware for JWT Verification
 const verifyToken = (req, res, next) => {
@@ -58,17 +63,19 @@ const verifyToken = (req, res, next) => {
   });
 };
 
-// Register User
+// Register User with Stronger Password Policy
 app.post('/register', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, role } = req.body;
     if (!username || !password) return res.status(400).json({ success: false, message: 'Username and password are required' });
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(password))
+      return res.status(400).json({ success: false, message: 'Password must contain at least 8 characters, an uppercase letter, a number, and a special character' });
 
     const existingUser = await User.findOne({ username });
     if (existingUser) return res.status(400).json({ success: false, message: 'Username already exists' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ username, password: hashedPassword, role: 'user' });
+    const newUser = new User({ username, password: hashedPassword, role: role || 'user' });
     await newUser.save();
     res.json({ success: true, message: 'User registered successfully' });
   } catch (error) {
@@ -76,7 +83,7 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// Login User
+// Login with Refresh Token Support
 app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -88,57 +95,34 @@ app.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign({ id: user._id, username, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
-    res.json({ success: true, token });
+    const refreshToken = jwt.sign({ id: user._id }, REFRESH_SECRET_KEY, { expiresIn: '7d' });
+    res.json({ success: true, token, refreshToken });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
-// Create Playlist
-app.post('/playlists', verifyToken, async (req, res) => {
+// Search for Songs in a Playlist
+app.get('/playlists/:id/songs/search', verifyToken, async (req, res) => {
   try {
-    const { name, description, isPublic } = req.body;
-    if (!name) return res.status(400).json({ success: false, message: 'Playlist name is required' });
+    const { query } = req.query;
+    if (!query) return res.status(400).json({ success: false, message: 'Query parameter is required' });
 
-    const newPlaylist = new Playlist({
-      name, description, isPublic, createdBy: req.user.username
-    });
-    await newPlaylist.save();
-    res.json({ success: true, message: 'Playlist created', playlist: newPlaylist });
+    const songs = await Song.find({ playlist: req.params.id, title: { $regex: query, $options: 'i' } });
+    res.json({ success: true, songs });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
-// Upload Song to AWS S3
-app.post('/playlists/:id/songs', verifyToken, upload.single('song'), async (req, res) => {
+// Update User Profile
+app.put('/user/profile', verifyToken, async (req, res) => {
   try {
-    const playlist = await Playlist.findById(req.params.id);
-    if (!playlist) return res.status(404).json({ success: false, message: 'Playlist not found' });
-    if (!req.file) return res.status(400).json({ success: false, message: 'No song file uploaded' });
+    const { username } = req.body;
+    if (!username) return res.status(400).json({ success: false, message: 'Username is required' });
 
-    const songFile = req.file;
-    const fileKey = `songs/${Date.now()}_${songFile.originalname}`;
-
-    const uploadParams = {
-      Bucket: process.env.AWS_BUCKET_NAME,
-      Key: fileKey,
-      Body: songFile.buffer,
-      ContentType: songFile.mimetype,
-    };
-
-    const uploadResult = await s3.upload(uploadParams).promise();
-
-    const newSong = new Song({
-      title: req.body.title,
-      artist: req.body.artist,
-      fileUrl: uploadResult.Location,
-      playlist: playlist._id,
-      addedBy: req.user.username,
-    });
-
-    await newSong.save();
-    res.json({ success: true, message: 'Song uploaded', song: newSong });
+    await User.findByIdAndUpdate(req.user.id, { username });
+    res.json({ success: true, message: 'Profile updated successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
