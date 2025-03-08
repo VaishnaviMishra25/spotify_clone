@@ -42,11 +42,12 @@ const upload = multer({
 const User = require('./models/User');
 const Playlist = require('./models/Playlist');
 const Song = require('./models/Song');
+const Artist = require('./models/Artist');
 
 app.use(cors());
 app.use(express.json());
 
-// Rate Limiting (Different limits for guests & authenticated users)
+// Rate Limiting
 const guestLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
 const userLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 });
 app.use(guestLimiter);
@@ -102,29 +103,34 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// Search for Songs in a Playlist
-app.get('/playlists/:id/songs/search', verifyToken, async (req, res) => {
+// Add Wishlist
+app.post('/wishlist', verifyToken, async (req, res) => {
   try {
-    const { query } = req.query;
-    if (!query) return res.status(400).json({ success: false, message: 'Query parameter is required' });
+    const { songId } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user.wishlist) user.wishlist = [];
 
-    const songs = await Song.find({ playlist: req.params.id, title: { $regex: query, $options: 'i' } });
-    res.json({ success: true, songs });
+    if (!user.wishlist.includes(songId)) {
+      user.wishlist.push(songId);
+      await user.save();
+      res.json({ success: true, message: 'Song added to wishlist' });
+    } else {
+      res.status(400).json({ success: false, message: 'Song already in wishlist' });
+    }
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Internal server error' });
+    res.status(500).json({ success: false, message: 'Failed to add to wishlist' });
   }
 });
 
-// Update User Profile
-app.put('/user/profile', verifyToken, async (req, res) => {
+// Artist Routes
+app.post('/artists', verifyToken, async (req, res) => {
   try {
-    const { username } = req.body;
-    if (!username) return res.status(400).json({ success: false, message: 'Username is required' });
-
-    await User.findByIdAndUpdate(req.user.id, { username });
-    res.json({ success: true, message: 'Profile updated successfully' });
+    const { name, bio, genre, songs, image } = req.body;
+    const newArtist = new Artist({ name, bio, genre, songs, image });
+    await newArtist.save();
+    res.status(201).json({ success: true, message: 'Artist created successfully', artist: newArtist });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Internal server error' });
+    res.status(500).json({ success: false, message: 'Failed to create artist' });
   }
 });
 
