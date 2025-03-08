@@ -1,8 +1,8 @@
 /* General Styles */
 body {
   font-family: 'Poppins', sans-serif;
-  background: linear-gradient(135deg, #0f0f0f, #1a1a1a);
-  color: white;
+  background-color: #121212;
+  color: #ffffff;
   margin: 0;
   padding: 0;
   line-height: 1.6;
@@ -14,27 +14,26 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 15px 20px;
-  background: #181818;
+  background-color: #000000;
   border-bottom: 2px solid #282828;
-  box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3);
+  box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.7);
   position: sticky;
   top: 0;
   z-index: 1000;
 }
 
 .navbar a {
-  color: white;
+  color: #ffffff;
   text-decoration: none;
   padding: 12px 18px;
   font-weight: bold;
-  border-radius: 8px;
-  transition: 0.3s ease-in-out;
+  border-radius: 20px;
+  transition: background 0.3s ease-in-out;
 }
 
 .navbar a:hover {
-  background: linear-gradient(135deg, #1DB954, #1ed760);
-  color: #121212;
-  transform: scale(1.1);
+  background-color: #1DB954;
+  color: #000000;
 }
 
 /* Playlist Section */
@@ -46,17 +45,16 @@ body {
 }
 
 .playlist {
-  background: linear-gradient(135deg, #222, #292929);
+  background-color: #181818;
   padding: 20px;
   border-radius: 12px;
   margin-bottom: 25px;
-  box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.4);
-  transition: transform 0.3s ease-in-out, box-shadow 0.3s;
+  box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.6);
+  transition: transform 0.3s ease-in-out;
 }
 
 .playlist:hover {
-  transform: scale(1.05);
-  box-shadow: 0px 6px 20px rgba(0, 0, 0, 0.5);
+  transform: scale(1.03);
 }
 
 .playlist h3 {
@@ -76,15 +74,14 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 12px 15px;
-  background: #282828;
+  background-color: #282828;
   border-radius: 8px;
   margin-bottom: 8px;
-  transition: transform 0.3s ease-in-out, background 0.3s;
+  transition: background 0.3s;
 }
 
 .song:hover {
-  background: linear-gradient(135deg, #383838, #444);
-  transform: scale(1.05);
+  background-color: #383838;
 }
 
 .song .like-btn {
@@ -93,12 +90,10 @@ body {
   color: #1DB954;
   cursor: pointer;
   font-size: 1.5rem;
-  transition: color 0.3s, transform 0.3s;
 }
 
 .song .like-btn:hover {
   color: #1ed760;
-  transform: scale(1.2);
 }
 
 /* Upload & Forms */
@@ -110,34 +105,30 @@ body {
 .upload-section input {
   padding: 12px;
   margin-top: 15px;
-  border-radius: 8px;
+  border-radius: 20px;
   border: none;
-  background: #282828;
+  background-color: #282828;
   color: white;
   outline: none;
-  transition: background 0.3s, transform 0.3s;
 }
 
 .upload-section input:focus {
-  background: linear-gradient(135deg, #383838, #444);
-  transform: scale(1.05);
+  background-color: #383838;
 }
 
 /* Buttons */
 button {
-  background: linear-gradient(135deg, #1DB954, #1ed760);
-  color: white;
+  background-color: #1DB954;
+  color: #ffffff;
   border: none;
   padding: 12px 18px;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 20px;
   font-size: 1rem;
-  font-weight: bold;
-  transition: transform 0.3s ease-in-out, box-shadow 0.3s;
+  transition: background 0.3s ease-in-out;
 }
 
 button:hover {
-  background: linear-gradient(135deg, #1ed760, #23e674);
-  transform: scale(1.1);
-  box-shadow: 0px 4px 10px rgba(0, 255, 128, 0.5);
+  background-color: #1ed760;
+  box-shadow: 0px 4px 10px rgba(30, 215, 96, 0.5);
 }
